@@ -15,6 +15,7 @@ export async function select<T extends string | number>(opts: {
       loop: false,
     },
   ]);
+
   return value as T;
 }
 
@@ -27,5 +28,6 @@ export async function confirm(opts: { message: string; default?: boolean }) {
       default: opts.default ?? true,
     },
   ]);
+
   return !!ok;
 }
