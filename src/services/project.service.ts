@@ -26,7 +26,7 @@ export async function browseForProject(startDir: string): Promise<string> {
     const subdirs = await listDirectories(current);
 
     const choice = await select<string>({
-      message: `📁 ${logger.cyan(current)} — no package.json yet\nPick a folder:`,
+      message: `${logger.cyan(current)} — no package.json yet\nPick a folder:`,
       choices: [
         ...subdirs.map((d) => ({
           name: `${d}/`,
@@ -50,8 +50,12 @@ export async function browseForProject(startDir: string): Promise<string> {
 
 export function chooseScript(scripts: Record<string, string>): string | null {
   if (!scripts) return null;
+
   if (scripts.dev) return "dev";
   if (scripts.start) return "start";
+  if (scripts.serve) return "serve";
+
   const keys = Object.keys(scripts);
+
   return keys.length ? null : null;
 }
