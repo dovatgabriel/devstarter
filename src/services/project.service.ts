@@ -16,44 +16,41 @@ export async function browseForProject(startDir: string): Promise<string> {
   while (true) {
     const pkg = await readPkgJson(current);
 
-    const header = pkg
-      ? logger.green("package.json detected")
-      : logger.dim("no package.json yet");
+    if (pkg) {
+      logger.success(
+        `package.json detected in ${logger.cyan(current)} — launching here.`,
+      );
+      return current;
+    }
 
     const subdirs = await listDirectories(current);
-
     const choice = await select<string>({
-      message: `${logger.cyan(current)} — ${header}\nChoose an action:`,
+      message: `📁 ${logger.cyan(current)} — no package.json yet\nPick a folder:`,
       choices: [
-        ...(pkg ? [{ name: "run here", value: "__open_here__" }] : []),
+        ...subdirs.map((d) => ({
+          name: `${d}/`,
+          value: path.join(current, d),
+        })),
         ...(path.dirname(current) !== current
           ? [{ name: "../", value: "__up__" }]
           : []),
-        ...subdirs.map((d) => ({
-          name: `./${d}`,
-          value: path.join(current, d),
-        })),
       ],
       pageSize: 15,
     });
-
-    if (choice === "__open_here__") return current;
 
     if (choice === "__up__") {
       current = path.dirname(current);
       continue;
     }
 
-    current = choice; // go into selected subdir
+    current = choice;
   }
 }
 
 export function chooseScript(scripts: Record<string, string>): string | null {
   if (!scripts) return null;
-
   if (scripts.dev) return "dev";
   if (scripts.start) return "start";
-
   const keys = Object.keys(scripts);
   return keys.length ? null : null;
 }
