@@ -24,6 +24,7 @@ export async function browseForProject(startDir: string): Promise<string> {
     }
 
     const subdirs = await listDirectories(current);
+
     const choice = await select<string>({
       message: `📁 ${logger.cyan(current)} — no package.json yet\nPick a folder:`,
       choices: [
