@@ -26,8 +26,11 @@ jobs:
           npm ci
           npm i -g pkg
 
-      - name: Build TypeScript (ESM)
+      - name: Build TypeScript
         run: npm run build
+
+      - name: Bundle for pkg
+        run: npm run bundle
 
       - name: Determine version
         id: ver
@@ -36,14 +39,11 @@ jobs:
           VERSION="${VERSION#v}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Bundle for pkg (single CJS file)
-        run: npm run bundle
-
       - name: Build binaries (Intel & ARM)
         run: |
           mkdir -p build
-          pkg bundle/index.cjs --targets node18-macos-x64  --output build/devstarter-x64
-          pkg bundle/index.cjs --targets node18-macos-arm64 --output build/devstarter-arm64
+          pkg pkg-entry.cjs --targets node18-macos-x64  --output build/devstarter-x64
+          pkg pkg-entry.cjs --targets node18-macos-arm64 --output build/devstarter-arm64
           chmod +x build/devstarter-x64 build/devstarter-arm64
           (cd build && ln -sf devstarter-x64 ds-x64 && ln -sf devstarter-arm64 ds-arm64)
           tar -C build -czf "devstarter-macos-x64-v${{ steps.ver.outputs.version }}.tar.gz"  devstarter-x64 ds-x64
@@ -92,20 +92,16 @@ jobs:
           REPO: ${{ github.event.repository.name }}
         run: |
           set -euo pipefail
-
           REL_BASE="https://github.com/${OWNER}/${REPO}/releases/download/v${VERSION}"
           X64_URL="${REL_BASE}/${X64_TGZ}"
           ARM_URL="${REL_BASE}/${ARM_TGZ}"
-
           git clone "https://${OWNER}:${TAP_PAT}@github.com/${TAP_REPO}.git" tap
           mkdir -p tap/Formula
-
           cat > tap/Formula/devstarter.rb <<'RUBY'
           class Devstarter < Formula
             desc "Quickly launch Node.js projects from ~/Developer"
             homepage "https://github.com/OWNER/REPO"
             version "VERSION"
-
             on_macos do
               on_intel do
                 url "X64_URL"
@@ -116,7 +112,6 @@ jobs:
                 sha256 "ARM_SHA"
               end
             end
-
             def install
               if Hardware::CPU.intel?
                 bin.install "devstarter-x64" => "devstarter"
@@ -125,14 +120,11 @@ jobs:
               end
               bin.install_symlink bin/"devstarter" => "ds"
             end
-
             test do
               system "#{bin}/devstarter", "--help"
             end
           end
           RUBY
-
-          # Remplacements
           sed -i '' "s|OWNER|${OWNER}|g" tap/Formula/devstarter.rb
           sed -i '' "s|REPO|${REPO}|g" tap/Formula/devstarter.rb
           sed -i '' "s|VERSION|${VERSION}|g" tap/Formula/devstarter.rb
@@ -140,7 +132,6 @@ jobs:
           sed -i '' "s|ARM_URL|${ARM_URL}|g" tap/Formula/devstarter.rb
           sed -i '' "s|X64_SHA|${X64_SHA}|g" tap/Formula/devstarter.rb
           sed -i '' "s|ARM_SHA|${ARM_SHA}|g" tap/Formula/devstarter.rb
-
           cd tap
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
