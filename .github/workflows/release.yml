@@ -1,0 +1,136 @@
+name: Release & Homebrew
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Install deps
+        run: |
+          npm ci
+          npm i -g pkg
+
+      - name: Build TypeScript
+        run: npm run build
+
+      - name: Determine version
+        id: ver
+        run: |
+          VERSION="${GITHUB_REF##*/}"
+          VERSION="${VERSION#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build binaries (Intel & ARM)
+        run: |
+          mkdir -p build
+          pkg dist/index.js --targets node18-macos-x64 --output build/devstarter-x64
+          pkg dist/index.js --targets node18-macos-arm64 --output build/devstarter-arm64
+          (cd build && ln -sf devstarter-x64 ds-x64 && ln -sf devstarter-arm64 ds-arm64)
+          tar -C build -czf "devstarter-macos-x64-v${{ steps.ver.outputs.version }}.tar.gz" devstarter-x64 ds-x64
+          tar -C build -czf "devstarter-macos-arm64-v${{ steps.ver.outputs.version }}.tar.gz" devstarter-arm64 ds-arm64
+
+      - name: Compute checksums
+        id: sums
+        run: |
+          X64_TGZ="devstarter-macos-x64-v${{ steps.ver.outputs.version }}.tar.gz"
+          ARM_TGZ="devstarter-macos-arm64-v${{ steps.ver.outputs.version }}.tar.gz"
+          X64_SHA=$(shasum -a 256 "$X64_TGZ" | awk '{print $1}')
+          ARM_SHA=$(shasum -a 256 "$ARM_TGZ" | awk '{print $1}')
+          echo "x64_tgz=$X64_TGZ" >> "$GITHUB_OUTPUT"
+          echo "arm_tgz=$ARM_TGZ" >> "$GITHUB_OUTPUT"
+          echo "x64_sha=$X64_SHA" >> "$GITHUB_OUTPUT"
+          echo "arm_sha=$ARM_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release & upload assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v${{ steps.ver.outputs.version }}"
+          name: "devstarter v${{ steps.ver.outputs.version }}"
+          files: |
+            ${{ steps.sums.outputs.x64_tgz }}
+            ${{ steps.sums.outputs.arm_tgz }}
+
+      - name: Update Homebrew tap formula
+        env:
+          TAP_PAT: ${{ secrets.TAP_PAT }}
+          TAP_REPO: ${{ secrets.TAP_REPO }}
+          VERSION: ${{ steps.ver.outputs.version }}
+          X64_TGZ: ${{ steps.sums.outputs.x64_tgz }}
+          ARM_TGZ: ${{ steps.sums.outputs.arm_tgz }}
+          X64_SHA: ${{ steps.sums.outputs.x64_sha }}
+          ARM_SHA: ${{ steps.sums.outputs.arm_sha }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+        run: |
+          set -euo pipefail
+
+          REL_BASE="https://github.com/${OWNER}/${REPO}/releases/download/v${VERSION}"
+          X64_URL="${REL_BASE}/${X64_TGZ}"
+          ARM_URL="${REL_BASE}/${ARM_TGZ}"
+
+          git clone "https://${OWNER}:${TAP_PAT}@github.com/${TAP_REPO}.git" tap
+          mkdir -p tap/Formula
+
+          cat > tap/Formula/devstarter.rb <<'RUBY'
+          class Devstarter < Formula
+            desc "Quickly launch Node.js projects from ~/Developer"
+            homepage "https://github.com/OWNER/REPO"
+            version "VERSION"
+
+            on_macos do
+              on_intel do
+                url "X64_URL"
+                sha256 "X64_SHA"
+              end
+              on_arm do
+                url "ARM_URL"
+                sha256 "ARM_SHA"
+              end
+            end
+
+            def install
+              if Hardware::CPU.intel?
+                bin.install "devstarter-x64" => "devstarter"
+                bin.install_symlink bin/"devstarter" => "ds"
+              else
+                bin.install "devstarter-arm64" => "devstarter"
+                bin.install_symlink bin/"devstarter" => "ds"
+              end
+            end
+
+            test do
+              system "#{bin}/devstarter", "--help"
+            end
+          end
+          RUBY
+
+          sed -i '' "s|OWNER|${OWNER}|g" tap/Formula/devstarter.rb
+          sed -i '' "s|REPO|${REPO}|g" tap/Formula/devstarter.rb
+          sed -i '' "s|VERSION|${VERSION}|g" tap/Formula/devstarter.rb
+          sed -i '' "s|X64_URL|${X64_URL}|g" tap/Formula/devstarter.rb
+          sed -i '' "s|ARM_URL|${ARM_URL}|g" tap/Formula/devstarter.rb
+          sed -i '' "s|X64_SHA|${X64_SHA}|g" tap/Formula/devstarter.rb
+          sed -i '' "s|ARM_SHA|${ARM_SHA}|g" tap/Formula/devstarter.rb
+
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/devstarter.rb
+          git commit -m "devstarter ${VERSION} (auto)"
+          git push origin HEAD
