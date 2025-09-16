@@ -12,6 +12,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "dev": "tsx src/index.ts",
     "bundle": "esbuild dist/index.js --bundle --platform=node --format=cjs --target=node18 --outfile=pkg-entry.cjs",
     "pack": "npm run build && npm run bundle && npx pkg pkg-entry.cjs --targets node18-macos-$(uname -m | sed 's/x86_64/x64/;s/arm64/arm64/') --output devstarter && chmod +x devstarter && ./devstarter --help"
   },
@@ -37,6 +38,7 @@
     "@types/node": "^24.5.0",
     "esbuild": "^0.25.9",
     "ts-node": "^10.9.2",
+    "tsx": "^4.20.5",
     "typescript": "^5.9.2"
   }
 }
