@@ -2,7 +2,11 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "module": "CommonJS",
-    "outDir": "dist-cjs"
+    "moduleResolution": "Node",
+    "outDir": "dist-cjs",
+    "target": "ES2020",
+    "esModuleInterop": true,
+    "skipLibCheck": true
   },
   "include": ["src"]
 }
