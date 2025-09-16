@@ -26,8 +26,11 @@ jobs:
           npm ci
           npm i -g pkg
 
-      - name: Build TypeScript
+      - name: Build TypeScript (ESM)
         run: npm run build
+
+      - name: Build TypeScript for pkg (CJS)
+        run: npx tsc -p tsconfig.pkg.json
 
       - name: Determine version
         id: ver
@@ -39,10 +42,11 @@ jobs:
       - name: Build binaries (Intel & ARM)
         run: |
           mkdir -p build
-          pkg dist/index.js --targets node18-macos-x64 --output build/devstarter-x64
-          pkg dist/index.js --targets node18-macos-arm64 --output build/devstarter-arm64
+          pkg dist-cjs/index.js --targets node18-macos-x64  --output build/devstarter-x64
+          pkg dist-cjs/index.js --targets node18-macos-arm64 --output build/devstarter-arm64
+          chmod +x build/devstarter-x64 build/devstarter-arm64
           (cd build && ln -sf devstarter-x64 ds-x64 && ln -sf devstarter-arm64 ds-arm64)
-          tar -C build -czf "devstarter-macos-x64-v${{ steps.ver.outputs.version }}.tar.gz" devstarter-x64 ds-x64
+          tar -C build -czf "devstarter-macos-x64-v${{ steps.ver.outputs.version }}.tar.gz"  devstarter-x64 ds-x64
           tar -C build -czf "devstarter-macos-arm64-v${{ steps.ver.outputs.version }}.tar.gz" devstarter-arm64 ds-arm64
 
       - name: Compute checksums
@@ -107,11 +111,10 @@ jobs:
             def install
               if Hardware::CPU.intel?
                 bin.install "devstarter-x64" => "devstarter"
-                bin.install_symlink bin/"devstarter" => "ds"
               else
                 bin.install "devstarter-arm64" => "devstarter"
-                bin.install_symlink bin/"devstarter" => "ds"
               end
+              bin.install_symlink bin/"devstarter" => "ds"
             end
 
             test do
