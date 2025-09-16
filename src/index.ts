@@ -1,12 +1,25 @@
 #!/usr/bin/env node
+/* devstarter CLI — ESM-friendly source (bundle -> CJS -> pkg) */
+
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import process from "node:process";
-import { select, confirm } from "@inquirer/prompts";
-import ora from "ora";
-import chalk from "chalk";
-import { execa } from "execa";
+import inquirer from "inquirer"; // v8 (CJS) — ok avec esbuild bundle CJS
+import ora from "ora"; // v5 (CJS)
+import chalk from "chalk"; // v4 (CJS)
+import execa from "execa"; // v5 (CJS)
+
+let version = "0.0.0";
+// @ts-ignore - require will exist in the bundled CJS output
+try {
+  // esbuild bundle (format=cjs) transformera ça en require() valide
+  // et empaquetera le JSON automatiquement
+  const pkg = require("../package.json") as { version?: string };
+  version = pkg.version ?? version;
+} catch {
+  /* ignore */
+}
 
 type PkgJson = {
   scripts?: Record<string, string>;
@@ -17,8 +30,7 @@ const HOME = os.homedir();
 const DEFAULT_ROOT = path.resolve(HOME, "Developer");
 
 function expandTilde(input: string): string {
-  if (input.startsWith("~")) return path.join(HOME, input.slice(1));
-  return input;
+  return input.startsWith("~") ? path.join(HOME, input.slice(1)) : input;
 }
 
 async function exists(p: string) {
@@ -53,13 +65,18 @@ async function runScript(dir: string, script: string) {
   const spinner = ora(`Running "${script}" in ${chalk.cyan(dir)}…`).start();
   try {
     spinner.succeed(`Starting "${script}"`);
-    // Change CWD for the spawned process
-    const subprocess = execa("npm", ["run", script], {
+    const child = execa("npm", ["run", script], {
       cwd: dir,
       stdio: "inherit",
       shell: false,
     });
-    await subprocess; // wait until it exits
+
+    // Propager Ctrl-C proprement au child
+    const onSig = () => child.kill("SIGINT", { forceKillAfterTimeout: 2000 });
+    process.on("SIGINT", onSig);
+    process.on("SIGTERM", onSig);
+
+    await child;
   } catch (e) {
     console.error(
       chalk.red("Script failed."),
@@ -69,41 +86,60 @@ async function runScript(dir: string, script: string) {
   }
 }
 
+// Petits wrappers pour garder une API proche de @inquirer/prompts
+async function select(opts: {
+  message: string;
+  choices: { name: string; value: string }[];
+  pageSize?: number;
+}): Promise<string> {
+  const { value } = await inquirer.prompt([
+    {
+      type: "list",
+      name: "value",
+      message: opts.message,
+      choices: opts.choices.map((c) => ({ name: c.name, value: c.value })),
+      pageSize: opts.pageSize ?? 12,
+      loop: false,
+    },
+  ]);
+  return value as string;
+}
+
+async function confirm(opts: {
+  message: string;
+  default?: boolean;
+}): Promise<boolean> {
+  const { ok } = await inquirer.prompt([
+    {
+      type: "confirm",
+      name: "ok",
+      message: opts.message,
+      default: opts.default ?? true,
+    },
+  ]);
+  return !!ok;
+}
+
 async function chooseScript(
   scripts: Record<string, string>,
 ): Promise<string | null> {
   const keys = Object.keys(scripts);
   if (keys.length === 0) return null;
-
-  // Prefer dev, then start
   if (scripts.dev) return "dev";
   if (scripts.start) return "start";
-
-  // Ask the user which script to use
   const chosen = await select({
     message: "No default script found. Pick a script to run:",
     choices: keys
-      .map((k) => ({ name: `${k} — ${scripts[k]}`, value: k }))
-      .slice(0, 50),
+      .slice(0, 50)
+      .map((k) => ({ name: `${k} — ${scripts[k]}`, value: k })),
     pageSize: 12,
   });
-
   return chosen ?? null;
-}
-
-async function chooseRoot(): Promise<string> {
-  // If ~/Developer doesn't exist, fall back to HOME
-  const root = (await exists(DEFAULT_ROOT)) ? DEFAULT_ROOT : HOME;
-
-  // Let the user confirm the base directory first (kept simple per spec)
-  return root;
 }
 
 async function browseForProject(startDir: string): Promise<string> {
   let current = startDir;
 
-  // We’ll let the user drill down until they select a folder to “Open here”
-  // and we’ll stop as soon as there is a package.json.
   while (true) {
     const pkg = await readPkgJson(current);
     const header = pkg
@@ -112,7 +148,7 @@ async function browseForProject(startDir: string): Promise<string> {
 
     const subdirs = await listDirectories(current);
 
-    const choice = await select<string>({
+    const choice = await select({
       message: `📁 ${chalk.cyan(current)} — ${header}\nChoose an action:`,
       choices: [
         ...(pkg
@@ -135,14 +171,39 @@ async function browseForProject(startDir: string): Promise<string> {
       current = path.dirname(current);
       continue;
     }
-    // otherwise it's a directory path
     current = choice;
   }
 }
 
+function showHelp() {
+  console.log(
+    `${chalk.bold("devstarter")} v${version}\n\n` +
+      `Usage:\n` +
+      `  devstarter            # interactive browser in ${DEFAULT_ROOT}\n` +
+      `  ds                    # alias\n` +
+      `  devstarter <name>     # non-interactive: jump to ${DEFAULT_ROOT}/<name> and run script\n\n` +
+      `Options:\n` +
+      `  -h, --help            Show help\n` +
+      `  -v, --version         Show version\n`,
+  );
+}
+
 async function main() {
   const originalCwd = process.cwd();
-  const baseDir = await chooseRoot();
+
+  // Args
+  const argv = process.argv.slice(2);
+  if (argv.includes("-h") || argv.includes("--help")) {
+    showHelp();
+    return;
+  }
+  if (argv.includes("-v") || argv.includes("--version")) {
+    console.log(version);
+    return;
+  }
+
+  const directProjectArg = argv.find((a) => !a.startsWith("-"));
+  const baseDir = (await exists(DEFAULT_ROOT)) ? DEFAULT_ROOT : HOME;
 
   console.log(
     chalk.bold(`devstarter`) +
@@ -150,33 +211,36 @@ async function main() {
       chalk.cyan(baseDir),
   );
 
-  const wantDifferentRoot = await confirm({
-    message: `Use base directory ${chalk.cyan(baseDir)}?`,
-    default: true,
-  });
-
-  let start = baseDir;
-  if (!wantDifferentRoot) {
-    // If user says no, allow picking between HOME and a typed path quickly
-    const home = path.resolve(HOME);
-    start = home;
-    console.log("Using home directory:", chalk.cyan(start));
+  let startDir = baseDir;
+  if (!directProjectArg) {
+    const ok = await confirm({
+      message: `Use base directory ${chalk.cyan(baseDir)}?`,
+      default: true,
+    });
+    if (!ok) {
+      // Option simple : proposer HOME
+      startDir = HOME;
+      console.log("Using home directory:", chalk.cyan(startDir));
+    }
   }
 
-  const spinner = ora("Scanning directories…").start();
+  const scan = ora("Scanning directories…").start();
   try {
-    if (!(await exists(start))) {
-      spinner.fail(`Base directory not found: ${start}`);
+    if (!(await exists(startDir))) {
+      scan.fail(`Base directory not found: ${startDir}`);
       process.exit(1);
     } else {
-      spinner.succeed("Ready.");
+      scan.succeed("Ready.");
     }
-  } catch (e) {
-    spinner.fail("Failed to read base directory.");
+  } catch {
+    scan.fail("Failed to read base directory.");
     process.exit(1);
   }
 
-  const chosenDir = await browseForProject(start);
+  const chosenDir = directProjectArg
+    ? path.resolve(expandTilde(path.join(baseDir, directProjectArg)))
+    : await browseForProject(startDir);
+
   const pkg = await readPkgJson(chosenDir);
 
   if (!pkg) {
@@ -200,7 +264,7 @@ async function main() {
 
   await runScript(chosenDir, scriptToRun);
 
-  // After child process exits, go back
+  // After child process exits, go back (informational; your shell stays where it is)
   process.chdir(originalCwd);
 }
 

@@ -29,9 +29,6 @@ jobs:
       - name: Build TypeScript (ESM)
         run: npm run build
 
-      - name: Build TypeScript for pkg (CJS)
-        run: npx tsc -p tsconfig.pkg.json
-
       - name: Determine version
         id: ver
         run: |
@@ -39,15 +36,27 @@ jobs:
           VERSION="${VERSION#v}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
+      - name: Bundle for pkg (single CJS file)
+        run: npm run bundle
+
       - name: Build binaries (Intel & ARM)
         run: |
           mkdir -p build
-          pkg dist-cjs/index.js --targets node18-macos-x64  --output build/devstarter-x64
-          pkg dist-cjs/index.js --targets node18-macos-arm64 --output build/devstarter-arm64
+          pkg bundle/index.cjs --targets node18-macos-x64  --output build/devstarter-x64
+          pkg bundle/index.cjs --targets node18-macos-arm64 --output build/devstarter-arm64
           chmod +x build/devstarter-x64 build/devstarter-arm64
           (cd build && ln -sf devstarter-x64 ds-x64 && ln -sf devstarter-arm64 ds-arm64)
           tar -C build -czf "devstarter-macos-x64-v${{ steps.ver.outputs.version }}.tar.gz"  devstarter-x64 ds-x64
           tar -C build -czf "devstarter-macos-arm64-v${{ steps.ver.outputs.version }}.tar.gz" devstarter-arm64 ds-arm64
+
+      - name: Smoke test binary
+        run: |
+          ARCH="$(uname -m)"
+          if [ "$ARCH" = "x86_64" ]; then
+            ./build/devstarter-x64 --version || ./build/devstarter-x64 --help
+          else
+            ./build/devstarter-arm64 --version || ./build/devstarter-arm64 --help
+          fi
 
       - name: Compute checksums
         id: sums
@@ -123,6 +132,7 @@ jobs:
           end
           RUBY
 
+          # Remplacements
           sed -i '' "s|OWNER|${OWNER}|g" tap/Formula/devstarter.rb
           sed -i '' "s|REPO|${REPO}|g" tap/Formula/devstarter.rb
           sed -i '' "s|VERSION|${VERSION}|g" tap/Formula/devstarter.rb
@@ -135,5 +145,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Formula/devstarter.rb
-          git commit -m "devstarter ${VERSION} (auto)"
+          git commit -m "devstarter ${VERSION} (auto)" || echo "No changes to commit"
           git push origin HEAD
