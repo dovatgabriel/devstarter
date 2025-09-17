@@ -47,8 +47,8 @@ ds --version
 
 To override the base directory, you must set this environment variable :
 
-```
-DEVSTARTER_ROOT=/path/to/projects devstarter
+```bash
+export DEVSTARTER_ROOT=<your directory>
 ```
 
 ### Requirements
