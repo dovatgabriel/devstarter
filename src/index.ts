@@ -10,7 +10,7 @@ async function main() {
 
   if (opts.help) {
     console.log(
-      `devstarter v${version}\n\n` +
+      `devstarter by Gabriel Dovat\n\n` +
         `Usage:\n` +
         ` devstarter # interactive browser\n` +
         ` ds # alias\n` +

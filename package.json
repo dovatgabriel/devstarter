@@ -4,7 +4,7 @@
     "name": "Gabriel Dovat",
     "email": "gabriel@optifit.app"
   },
-  "version": "0.1.0",
+  "version": "1.0.1",
   "type": "module",
   "bin": {
     "devstarter": "dist/index.js",
